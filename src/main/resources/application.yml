@@ -1,0 +1,16 @@
+spring:
+  profiles:
+    active: prod
+  application:
+    name: chitcircle
+
+gcp:
+  project-id: chitcircle-prod
+  region: asia-south1
+  storage:
+    image-upload-bucket: chitcircle-image-uploads
+    object-key-prefix: ""
+  secrets:
+    database: projects/291533875234/secrets/db-credentials
+    hikari: projects/291533875234/secrets/hikari
+    paseto: projects/291533875234/secrets/paseto

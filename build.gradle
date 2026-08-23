@@ -30,6 +30,19 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
+	//mapstruct
+	implementation 'org.mapstruct:mapstruct:1.6.3'
+	//google
+	implementation 'com.google.cloud:google-cloud-storage:2.69.0'
+	implementation 'com.google.cloud:google-cloud-secretmanager:2.94.0'
+	//paseto
+	implementation 'io.github.nbaars:paseto4j-version4:2024.3'
+	//jackson
+	// Jackson datatype for Java 8 Date/Time support
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+	// Jackson datatype for Hibernate 6 support
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-hibernate6'
 }
 
 tasks.named('test') {
