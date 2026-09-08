@@ -493,6 +493,50 @@ public class ChitOperationsApi {
     return ledgerRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId).stream().map(this::ledgerView).toList();
   }
 
+  @GetMapping("/api/users/{username}/financial-risk")
+  public Map<String, Object> financialRisk(
+      @PathVariable String username,
+      @RequestParam Long groupId,
+      Authentication authentication) {
+    ChitGroup group = ownedGroup(groupId, authentication);
+    User member = userRepository.findByUsername(username)
+      .orElseThrow(() -> new EntityNotFoundException("Customer not found: " + username));
+    Membership membership = membershipRepository.findByUserIdAndGroupId(member.getId(), groupId)
+      .filter(Membership::isActive)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Customer is not an active member of this group"));
+    List<Payment> payments = paymentRepository.findAllByMembershipIdOrderByDueDateDesc(membership.getId());
+    List<Payment> groupPayments = payments.stream().filter(payment -> payment.getCycle().getGroup().getId().equals(groupId)).toList();
+    long totalPayments = groupPayments.size();
+    long paidPayments = groupPayments.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID).count();
+    long overduePayments = groupPayments.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.OVERDUE).count();
+    long pendingPayments = groupPayments.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PENDING).count();
+    BigDecimal outstanding = groupPayments.stream()
+      .filter(payment -> payment.getStatus() == PaymentStatusEnum.PENDING || payment.getStatus() == PaymentStatusEnum.OVERDUE)
+      .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    List<Cycle> cycles = cycleRepository.findAllByGroupIdOrderByCycleNumberDesc(groupId);
+    Cycle currentCycle = cycles.isEmpty() ? null : cycles.get(0);
+    BigDecimal monthlyAmount = group.getScheme().getSchedule().stream()
+      .filter(schedule -> currentCycle != null && schedule.getMonthNumber().equals(currentCycle.getCycleNumber()))
+      .map(ChitSchemeSchedule::getMemberPayment).findFirst()
+      .orElseGet(() -> group.getScheme().getDurationMonths() == 0 ? BigDecimal.ZERO : group.getScheme().getPotAmount().divide(BigDecimal.valueOf(group.getScheme().getDurationMonths()), 2, java.math.RoundingMode.HALF_UP));
+    int score = (int) Math.min(100, overduePayments * 35 + pendingPayments * 15 + (totalPayments == 0 ? 20 : Math.round((1d - ((double) paidPayments / totalPayments)) * 30)));
+    score = Math.min(100, score);
+    String risk = score >= 60 ? "HIGH" : score >= 30 ? "MEDIUM" : "LOW";
+    String capacity = outstanding.compareTo(monthlyAmount.multiply(BigDecimal.valueOf(2))) > 0 ? "UNLIKELY" : risk.equals("HIGH") ? "REVIEW" : "LIKELY";
+    List<String> reasons = new ArrayList<>();
+    if (overduePayments > 0) reasons.add(overduePayments + " overdue contribution(s)");
+    if (pendingPayments > 0) reasons.add(pendingPayments + " pending contribution(s)");
+    if (totalPayments > 0) reasons.add(paidPayments + " of " + totalPayments + " contributions paid");
+    if (reasons.isEmpty()) reasons.add("No contribution history is available yet");
+    return Map.ofEntries(
+      Map.entry("username", username), Map.entry("groupId", groupId), Map.entry("groupName", group.getName()),
+      Map.entry("risk", risk), Map.entry("score", score), Map.entry("capacity", capacity),
+      Map.entry("monthlyAmount", monthlyAmount), Map.entry("outstanding", outstanding),
+      Map.entry("paidPayments", paidPayments), Map.entry("totalPayments", totalPayments),
+      Map.entry("pendingPayments", pendingPayments), Map.entry("overduePayments", overduePayments),
+      Map.entry("reasons", reasons));
+  }
+
   @PostMapping("/api/groups/{groupId}/ledger")
   @ResponseStatus(HttpStatus.CREATED)
   public Map<String, Object> ledgerEntry(@PathVariable Long groupId, @RequestBody Map<String, Object> body, Authentication authentication) {
