@@ -11,8 +11,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.UUID;
+
+import lombok.extern.log4j.Log4j2;
 
 @Service
+@Log4j2
 public class UserImplService implements UserDetailsService {
 
   private final UserRepository userRepository;
@@ -26,10 +30,16 @@ public class UserImplService implements UserDetailsService {
   @Transactional
   // Note : Needed Transactional so that User role is correctly lazy-fetched in UserImpl
   public UserImpl loadUserByUsername(String username) throws UsernameNotFoundException {
+    log.info("loadUserByUsername called for: {}", username);
     User user = this.userRepository
       .findByUsernameAndActive(username, true)
       .orElseThrow(
-        () -> new UsernameNotFoundException("User Not Found with username: " + username));
+        () -> {
+          log.warn("User not found in repository for username: {}", username);
+          return new UsernameNotFoundException("User Not Found with username: " + username);
+        });
+    ensureTenant(user);
+    log.info("Found user id: {}, username: {}, role: {}, has password: {}", user.getId(), user.getUsername(), user.getRole() != null ? user.getRole().getName() : "null", user.getPassword() != null);
     return UserImpl.build(user);
   }
 
@@ -41,6 +51,7 @@ public class UserImplService implements UserDetailsService {
       .findByUsernameAndActive(token.getUsername(),true)
       .orElseThrow(() ->
         new UsernameNotFoundException("User Not Found with username: " + token.getUsername()));
+    ensureTenant(user);
 //    Instant tokenIssuedAt = Instant.ofEpochSecond(token.getIat());
 
 //    if (user.getPermissionsUpdatedAt()!=null && tokenIssuedAt.isBefore(user.getPermissionsUpdatedAt())) {
@@ -48,5 +59,12 @@ public class UserImplService implements UserDetailsService {
 //    }
     request.setAttribute("user", user);
     return UserImpl.buildUsingToken(token, user);
+  }
+
+  private void ensureTenant(User user) {
+    if (user.getTenantId() == null) {
+      user.setTenantId(UUID.randomUUID());
+      userRepository.save(user);
+    }
   }
 }

@@ -25,9 +25,6 @@ public class TokenFilter extends OncePerRequestFilter {
   private final UserImplService UserImplService;
   private final HandlerExceptionResolver handlerExceptionResolver;
 
-  private static final List<String> PUBLIC_ENDPOINTS = List.of(
-    "/api/auth/");
-
   @Autowired
   public TokenFilter(
     SessionTokenService tokenService,
@@ -47,7 +44,8 @@ public class TokenFilter extends OncePerRequestFilter {
 
     String path = request.getRequestURI();
 
-    if (PUBLIC_ENDPOINTS.stream().anyMatch(path::startsWith)) {
+    boolean publicAuthRequest = path.startsWith("/api/auth/");
+    if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || publicAuthRequest) {
       filterChain.doFilter(request, response);
       return;
     }

@@ -7,6 +7,8 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "chit_schemes")
@@ -36,6 +38,10 @@ public class ChitScheme {
 
   @Column(name = "commission_rate", nullable = false, precision = 5, scale = 2)
   private BigDecimal commissionRate;
+
+  @OneToMany(mappedBy = "scheme", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("monthNumber ASC")
+  private List<ChitSchemeSchedule> schedule = new ArrayList<>();
 
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)

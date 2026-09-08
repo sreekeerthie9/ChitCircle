@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
@@ -24,7 +26,11 @@ public class ChitGroup {
   @JoinColumn(name = "scheme_id", nullable = false)
   private ChitScheme scheme;
 
+  @Column(name = "name", nullable = false)
+  private String name;
+
   @Enumerated(EnumType.STRING)
+  @JdbcTypeCode(SqlTypes.NAMED_ENUM)
   @Column(name = "status", nullable = false, columnDefinition = "group_status")
   private GroupStatusEnum status = GroupStatusEnum.FORMING;
 

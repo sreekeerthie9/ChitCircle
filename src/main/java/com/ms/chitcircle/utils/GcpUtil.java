@@ -1,6 +1,5 @@
 package com.ms.chitcircle.utils;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.secretmanager.v1.SecretVersionName;
 import com.google.cloud.storage.Blob;
@@ -16,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -42,7 +42,7 @@ public class GcpUtil {
   private final GcpProperties gcpProperties;
   private final Storage storage;
   private final SecretManagerServiceClient secretManagerServiceClient;
-  private final ObjectMapper objectMapper;
+  private final JsonMapper objectMapper;
   private final Environment environment;
 
   public String withObjectKeyPrefix(String key) {

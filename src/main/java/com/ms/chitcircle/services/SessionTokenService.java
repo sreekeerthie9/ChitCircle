@@ -2,7 +2,6 @@ package com.ms.chitcircle.services;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ms.chitcircle.constants.Constants;
 import com.ms.chitcircle.dtos.Token;
 import com.ms.chitcircle.dtos.secret.PasetoSecret;
@@ -16,6 +15,7 @@ import com.ms.chitcircle.repositories.SessionTokenRepository;
 import com.ms.chitcircle.repositories.UserRepository;
 import com.ms.chitcircle.security.UserImpl;
 import com.ms.chitcircle.utils.GcpUtil;
+import com.ms.chitcircle.utils.HashUtil;
 import com.ms.chitcircle.utils.JacksonMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +28,7 @@ import org.springframework.security.core.token.TokenService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -72,7 +73,7 @@ public class SessionTokenService {
     try {
       payload = objectMapper.writeValueAsString(token);
       return Paseto.encrypt(secret.getSecretKey(), payload, secret.getFooter());
-    } catch (PasetoException | JsonProcessingException e) {
+    } catch (PasetoException e) {
       log.error("Failed to encode token: {}", e.getMessage());
       throw new TokenEncodingException("Error encoding token");
     }
@@ -92,7 +93,7 @@ public class SessionTokenService {
       }
 
       return token;
-    } catch (PasetoException | JsonProcessingException e) {
+    } catch (PasetoException e) {
       log.error("Failed to decode token: {}", e.getMessage());
       throw new InvalidTokenException("Invalid token");
     }
@@ -112,7 +113,7 @@ public class SessionTokenService {
       throw new ExpiredTokenException("Refresh token expired");
     }
 
-    if (!bcryptEncoder.matches(refreshTokenStr, preRefreshToken.getRefreshTokenHash())) {
+    if (!HashUtil.matchesSha256(refreshTokenStr, preRefreshToken.getRefreshTokenHash())) {
       throw new InvalidTokenException("Invalid refresh Token");
     }
 
@@ -125,7 +126,7 @@ public class SessionTokenService {
     String authTokenString = generateTokenString(newAuthToken); //add permissions only in auth token
     Token refreshToken = generateRefreshToken(userImpl);
     String refreshTokenString = generateTokenString(refreshToken);
-    String refreshHash = bcryptEncoder.encode(refreshTokenString);
+    String refreshHash = HashUtil.sha256(refreshTokenString);
     SessionToken sessionToken = SessionToken.getSessionToken(
       refreshToken, refreshHash, getClientIp(request), getUserAgent(request));
     sessionTokenRepository.save(sessionToken);
@@ -145,7 +146,7 @@ public class SessionTokenService {
     String newAuthTokenStr = generateTokenString(newAuthToken); //add permissions only in auth token
     Token postRefreshToken = getNewRefreshToken(parsedRefreshToken);
     String newRefreshToken = generateTokenString(postRefreshToken);
-    String newRefreshHash = bcryptEncoder.encode(newRefreshToken);
+    String newRefreshHash = HashUtil.sha256(newRefreshToken);
     preRefreshSessionToken.rotateSessionToken(postRefreshToken, newRefreshHash);
 
     sessionTokenRepository.save(preRefreshSessionToken);

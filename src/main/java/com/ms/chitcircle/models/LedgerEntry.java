@@ -5,6 +5,8 @@ import com.ms.chitcircle.enums.LedgerEntryTypeEnum;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
@@ -34,10 +36,12 @@ public class LedgerEntry {
   private Cycle cycle;
 
   @Enumerated(EnumType.STRING)
+  @JdbcTypeCode(SqlTypes.NAMED_ENUM)
   @Column(name = "entry_type", nullable = false, columnDefinition = "ledger_entry_type")
   private LedgerEntryTypeEnum entryType;
 
   @Enumerated(EnumType.STRING)
+  @JdbcTypeCode(SqlTypes.NAMED_ENUM)
   @Column(name = "direction", nullable = false, columnDefinition = "ledger_direction")
   private LedgerDirectionEnum direction;
 

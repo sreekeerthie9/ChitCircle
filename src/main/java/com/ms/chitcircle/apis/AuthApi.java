@@ -41,7 +41,7 @@ public class AuthApi {
       authentication = authenticationProvider.authenticate(new UsernamePasswordAuthenticationToken(
         authRequest.getUsername(), authRequest.getPassword()));
     } catch (AuthenticationException e) {
-      log.warn("Attempted login for username : {} with bad credentials", authRequest.getUsername());
+      log.warn("Attempted login for username : {} failed with exception: {}", authRequest.getUsername(), e.getClass().getName(), e);
       throw new AuthException("Invalid Username or Password");
     }
     return ResponseEntity.ok()

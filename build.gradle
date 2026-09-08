@@ -21,6 +21,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -32,6 +33,7 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 	//mapstruct
 	implementation 'org.mapstruct:mapstruct:1.6.3'
+	annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
 	//google
 	implementation 'com.google.cloud:google-cloud-storage:2.69.0'
 	implementation 'com.google.cloud:google-cloud-secretmanager:2.94.0'
@@ -39,10 +41,8 @@ dependencies {
 	implementation 'io.github.nbaars:paseto4j-version4:2024.3'
 	//jackson
 	// Jackson datatype for Java 8 Date/Time support
-	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+	implementation 'tools.jackson.datatype:jackson-datatype-hibernate7:3.0.3'
 
-	// Jackson datatype for Hibernate 6 support
-	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-hibernate6'
 }
 
 tasks.named('test') {

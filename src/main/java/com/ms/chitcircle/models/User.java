@@ -6,11 +6,18 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
-@Table(name = "users")
+@Table(name = "users", indexes = {
+  @Index(name = "idx_users_tenant_id", columnList = "tenant_id"),
+  @Index(name = "idx_users_parent_id", columnList = "parent_id"),
+  @Index(name = "idx_users_tenant_parent", columnList = "tenant_id,parent_id")
+})
 @Getter
 @Setter
 public class User {
@@ -29,6 +36,13 @@ public class User {
   @JoinColumn(name = "role")
   private Role role;
 
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "parent_id")
+  private User parent;
+
+  @Column(name = "tenant_id", nullable = false)
+  private UUID tenantId;
+
   @Column(name = "name", nullable = false)
   private String displayName;
 
@@ -42,6 +56,7 @@ public class User {
   private String firebaseUid;
 
   @Enumerated(EnumType.STRING)
+  @JdbcTypeCode(SqlTypes.NAMED_ENUM)
   @Column(name = "kyc_status", nullable = false, columnDefinition = "kyc_status")
   private KycStatusEnum kycStatus = KycStatusEnum.NOT_STARTED;
 

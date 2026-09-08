@@ -19,6 +19,7 @@ public class GcpProperties {
   @Setter
   public static class Storage {
     private String imageUploadBucket;
+    private String receiptUploadBucket;
     private String objectKeyPrefix = "";
   }
 

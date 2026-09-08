@@ -9,8 +9,9 @@ gcp:
   region: asia-south1
   storage:
     image-upload-bucket: chitcircle-image-uploads
+    receipt-upload-bucket: chitcircle-image-uploads
     object-key-prefix: ""
   secrets:
-    database: projects/291533875234/secrets/db-credentials
-    hikari: projects/291533875234/secrets/hikari
-    paseto: projects/291533875234/secrets/paseto
+    database: db-credentials
+    hikari: hikari
+    paseto: paseto

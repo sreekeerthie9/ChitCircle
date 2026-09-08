@@ -11,6 +11,7 @@ import java.util.List;
 @AllArgsConstructor
 public class AuthResponse {
 
+  private String authToken;
   private String refreshToken;
   private String username;
   private String role;
