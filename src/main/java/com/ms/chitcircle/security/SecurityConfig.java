@@ -1,6 +1,9 @@
 package com.ms.chitcircle.security;
 
+import com.ms.chitcircle.dtos.ApiResponse;
 import com.ms.chitcircle.services.SessionTokenService;
+import com.ms.chitcircle.utils.JacksonMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -18,6 +21,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.servlet.HandlerExceptionResolver;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 
@@ -28,6 +33,7 @@ public class SecurityConfig {
   private final UserImplService userDetailsService;
   private final SessionTokenService tokenService;
   private final HandlerExceptionResolver handlerExceptionResolver;
+  private final ObjectMapper objectMapper =  JacksonMapper.getInstance();
 
   public SecurityConfig(
       UserImplService userDetailsService,
@@ -78,6 +84,11 @@ public class SecurityConfig {
     http
       .cors(Customizer.withDefaults())
       .csrf(csrf -> csrf.disable())
+      .exceptionHandling(exceptions -> exceptions
+        .authenticationEntryPoint((request, response, exception) ->
+          writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "Authentication is required"))
+        .accessDeniedHandler((request, response, exception) ->
+          writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action")))
       .authorizeHttpRequests(auth -> auth
         .requestMatchers("/api/auth/**").permitAll()
         .requestMatchers(HttpMethod.POST, "/api/users").authenticated()
@@ -92,5 +103,12 @@ public class SecurityConfig {
       .addFilterBefore(tokenFilter(), UsernamePasswordAuthenticationFilter.class);
 
     return http.build();
+  }
+
+  private void writeError(HttpServletResponse response, int status, String code, String message)
+      throws java.io.IOException {
+    response.setStatus(status);
+    response.setContentType("application/json");
+    objectMapper.writeValue(response.getOutputStream(), ApiResponse.error(code, message));
   }
 }

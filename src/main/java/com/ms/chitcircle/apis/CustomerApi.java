@@ -12,7 +12,9 @@ import com.ms.chitcircle.repositories.ClaimRepository;
 import com.ms.chitcircle.repositories.CycleRepository;
 import com.ms.chitcircle.repositories.MembershipRepository;
 import com.ms.chitcircle.repositories.PaymentRepository;
+import com.ms.chitcircle.repositories.PayoutRepository;
 import com.ms.chitcircle.repositories.UserRepository;
+import com.ms.chitcircle.security.UserImpl;
 import com.ms.chitcircle.services.AuditService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -35,37 +37,42 @@ public class CustomerApi {
   private final ClaimRepository claimRepository;
   private final CycleRepository cycleRepository;
   private final PaymentRepository paymentRepository;
+  private final PayoutRepository payoutRepository;
   private final AuditService auditService;
 
   @GetMapping("/memberships")
   public List<Map<String, Object>> memberships(org.springframework.security.core.Authentication authentication) {
-    return membershipRepository.findAllByUserUsernameOrderByJoinedAtDesc(authentication.getName())
+    return membershipRepository.findAllByUserIdOrderByJoinedAtDesc(currentUserId(authentication))
       .stream().map(this::membershipView).toList();
   }
 
   @GetMapping("/bids")
   public List<Map<String, Object>> bids(org.springframework.security.core.Authentication authentication) {
-    return bidRepository.findAllByMembershipUserUsernameOrderBySubmittedAtDesc(authentication.getName())
+    return bidRepository.findAllByMembershipUserIdOrderBySubmittedAtDesc(currentUserId(authentication))
       .stream().map(this::bidView).toList();
   }
 
   @GetMapping("/claims")
   public List<Map<String, Object>> claims(org.springframework.security.core.Authentication authentication) {
-    return claimRepository.findAllByMembershipUserUsernameOrderBySubmittedAtDesc(authentication.getName())
+    return claimRepository.findAllByMembershipUserIdOrderBySubmittedAtDesc(currentUserId(authentication))
       .stream().map(this::claimView).toList();
   }
 
   @GetMapping("/payments")
   public List<Map<String, Object>> payments(org.springframework.security.core.Authentication authentication) {
-    return paymentRepository.findAllByMembershipUserUsernameOrderByDueDateDesc(authentication.getName())
-      .stream().map(this::paymentView).toList();
+    List<Map<String, Object>> records = new java.util.ArrayList<>();
+    paymentRepository.findAllByMembershipUserUsernameOrderByDueDateDesc(authentication.getName())
+      .forEach(payment -> records.add(paymentView(payment)));
+    payoutRepository.findAllByMembershipUserUsernameOrderByPaidAtDesc(authentication.getName())
+      .forEach(payout -> records.add(payoutView(payout)));
+    records.sort((left, right) -> String.valueOf(right.get("sortDate")).compareTo(String.valueOf(left.get("sortDate"))));
+    records.forEach(record -> record.remove("sortDate"));
+    return records;
   }
 
   @GetMapping("/cycles")
   public List<Map<String, Object>> cycles(org.springframework.security.core.Authentication authentication) {
-    User user = userRepository.findByUsername(authentication.getName())
-      .orElseThrow(() -> new EntityNotFoundException("User not found"));
-    return membershipRepository.findAllByUserUsernameOrderByJoinedAtDesc(authentication.getName()).stream()
+    return membershipRepository.findAllByUserIdOrderByJoinedAtDesc(currentUserId(authentication)).stream()
       .filter(Membership::isActive)
       .flatMap(membership -> cycleRepository.findAllByGroupIdOrderByCycleNumberDesc(membership.getGroup().getId()).stream()
         .map(cycle -> cycleView(cycle, membership)))
@@ -111,6 +118,13 @@ public class CustomerApi {
     return membershipRepository.findByUserIdAndGroupId(user.getId(), cycle.getGroup().getId())
       .filter(Membership::isActive)
       .orElseThrow(() -> new SecurityException("Customer is not enrolled in this group"));
+  }
+
+  private Integer currentUserId(org.springframework.security.core.Authentication authentication) {
+    Object principal = authentication.getPrincipal();
+    if (principal instanceof UserImpl user) return user.getId();
+    return userRepository.findByUsername(authentication.getName())
+      .orElseThrow(() -> new EntityNotFoundException("User not found")).getId();
   }
 
   private void ensureClaimWindowOpen(Cycle cycle) {
@@ -166,6 +180,7 @@ public class CustomerApi {
       "cycleId", bid.getCycle().getId(),
       "cycleNumber", bid.getCycle().getCycleNumber(),
       "groupId", bid.getCycle().getGroup().getId(),
+      "groupName", bid.getCycle().getGroup().getName(),
       "discountAmount", bid.getDiscountAmount(),
       "status", bid.getStatus(),
       "submittedAt", bid.getSubmittedAt() == null ? "" : bid.getSubmittedAt()
@@ -178,6 +193,7 @@ public class CustomerApi {
       "cycleId", claim.getCycle().getId(),
       "cycleNumber", claim.getCycle().getCycleNumber(),
       "groupId", claim.getCycle().getGroup().getId(),
+      "groupName", claim.getCycle().getGroup().getName(),
       "note", claim.getNote() == null ? "" : claim.getNote(),
       "status", claim.getStatus(),
       "submittedAt", claim.getSubmittedAt() == null ? "" : claim.getSubmittedAt()
@@ -185,15 +201,34 @@ public class CustomerApi {
   }
 
   private Map<String, Object> paymentView(com.ms.chitcircle.models.Payment payment) {
-    return Map.of(
+    Map<String, Object> view = new java.util.HashMap<>(Map.of(
       "id", payment.getId(),
+      "recordType", "CONTRIBUTION",
       "cycleId", payment.getCycle().getId(),
       "groupId", payment.getCycle().getGroup().getId(),
       "amount", payment.getAmount(),
       "status", payment.getStatus(),
       "method", payment.getMethod() == null ? "" : payment.getMethod(),
       "dueDate", payment.getDueDate(),
-      "paidAt", payment.getPaidAt() == null ? "" : payment.getPaidAt()
-    );
+      "paidAt", payment.getPaidAt() == null ? "" : payment.getPaidAt(),
+      "sortDate", payment.getPaidAt() == null ? payment.getDueDate() : payment.getPaidAt()
+    ));
+    return view;
+  }
+
+  private Map<String, Object> payoutView(com.ms.chitcircle.models.Payout payout) {
+    Map<String, Object> view = new java.util.HashMap<>();
+    view.put("id", payout.getId());
+    view.put("recordType", "PAYOUT");
+    view.put("cycleId", payout.getCycle().getId());
+    view.put("cycleNumber", payout.getCycle().getCycleNumber());
+    view.put("groupId", payout.getCycle().getGroup().getId());
+    view.put("amount", payout.getAmount());
+    view.put("status", payout.getStatus());
+    view.put("method", payout.getMethod());
+    view.put("dueDate", "");
+    view.put("paidAt", payout.getPaidAt());
+    view.put("sortDate", payout.getPaidAt());
+    return view;
   }
 }

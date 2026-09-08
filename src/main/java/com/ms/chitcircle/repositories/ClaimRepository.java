@@ -10,4 +10,5 @@ public interface ClaimRepository extends JpaRepository<Claim, Long> {
   void deleteAllByCycleId(Long cycleId);
   List<Claim> findAllByCycleIdOrderBySubmittedAtDesc(Long cycleId);
   List<Claim> findAllByMembershipUserUsernameOrderBySubmittedAtDesc(String username);
+  List<Claim> findAllByMembershipUserIdOrderBySubmittedAtDesc(Integer userId);
 }

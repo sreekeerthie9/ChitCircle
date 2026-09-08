@@ -8,4 +8,5 @@ public interface BidRepository extends JpaRepository<Bid, Long> {
   void deleteAllByCycleId(Long cycleId);
   List<Bid> findAllByCycleIdOrderByDiscountAmountAsc(Long cycleId);
   List<Bid> findAllByMembershipUserUsernameOrderBySubmittedAtDesc(String username);
+  List<Bid> findAllByMembershipUserIdOrderBySubmittedAtDesc(Integer userId);
 }

@@ -14,12 +14,14 @@ public class GcpProperties {
   private String region;
   private Storage storage = new Storage();
   private Secrets secrets = new Secrets();
+  private Email email = new Email();
 
   @Getter
   @Setter
   public static class Storage {
     private String imageUploadBucket;
     private String receiptUploadBucket;
+    private String kycUploadBucket;
     private String objectKeyPrefix = "";
   }
 
@@ -29,5 +31,13 @@ public class GcpProperties {
     private String database;
     private String hikari;
     private String paseto;
+    private String gmailOauth;
+  }
+
+  @Getter
+  @Setter
+  public static class Email {
+    private String sender = "sreekeerthimaripally@gmail.com";
+    private boolean enabled = true;
   }
 }

@@ -77,3 +77,27 @@ CREATE TABLE IF NOT EXISTS payouts (
 
 CREATE INDEX IF NOT EXISTS idx_payouts_membership_id ON payouts (membership_id);
 CREATE INDEX IF NOT EXISTS idx_payouts_paid_at ON payouts (paid_at DESC);
+
+CREATE TABLE IF NOT EXISTS kyc_documents (
+  id bigserial PRIMARY KEY,
+  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  document_type varchar(50) NOT NULL,
+  object_key varchar(1024) NOT NULL,
+  file_name varchar(255) NOT NULL,
+  content_type varchar(100) NOT NULL,
+  status varchar(20) NOT NULL DEFAULT 'PENDING',
+  review_note text,
+  reviewed_by varchar(255),
+  reviewed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_kyc_documents_user_id
+  ON kyc_documents (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_kyc_documents_status
+  ON kyc_documents (status);
+
+CREATE INDEX IF NOT EXISTS idx_kyc_documents_created_at
+  ON kyc_documents (created_at DESC);

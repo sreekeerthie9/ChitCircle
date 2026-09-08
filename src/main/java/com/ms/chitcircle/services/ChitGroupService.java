@@ -23,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -49,12 +51,7 @@ public class ChitGroupService {
     group.setName(request.getName().trim());
     group.setStartDate(request.getStartDate());
     List<Integer> memberIds = request.getMemberIds() == null ? List.of() : request.getMemberIds();
-    if (new HashSet<>(memberIds).size() != memberIds.size()) {
-      throw new IllegalArgumentException("Duplicate members are not allowed");
-    }
-    if (memberIds.size() > scheme.getMemberCount()) {
-      throw new IllegalArgumentException("Selected members exceed the scheme member limit");
-    }
+    validateMemberIds(scheme, memberIds);
     ChitGroup savedGroup = groupRepository.save(group);
     for (Integer memberId : memberIds) {
       com.ms.chitcircle.models.User member = userRepository.findById(memberId)
@@ -67,7 +64,7 @@ public class ChitGroupService {
       membership.setUser(member);
       membershipRepository.save(membership);
     }
-    return GroupDto.fromEntity(savedGroup);
+    return toDto(savedGroup);
   }
 
   @Transactional(readOnly = true)
@@ -77,17 +74,15 @@ public class ChitGroupService {
     if (!owns(username, scheme.getAdmin())) {
       throw new AccessDeniedException("Only the scheme admin can view its groups");
     }
-    return groupRepository.findAllBySchemeIdOrderByCreatedAtDesc(schemeId)
-      .stream().map(GroupDto::fromEntity).toList();
+    return toDtos(groupRepository.findAllBySchemeIdOrderByCreatedAtDesc(schemeId));
   }
 
   @Transactional(readOnly = true)
   public List<GroupDto> listAll(String username) {
     com.ms.chitcircle.models.User admin = userRepository.findByUsername(username)
       .orElseThrow(() -> new EntityNotFoundException("User not found: " + username));
-    return groupRepository.findAllByScheme_Admin_IdAndScheme_Admin_TenantIdOrderByCreatedAtDesc(
-        admin.getId(), admin.getTenantId())
-      .stream().map(GroupDto::fromEntity).toList();
+    return toDtos(groupRepository.findAllByScheme_Admin_IdAndScheme_Admin_TenantIdOrderByCreatedAtDesc(
+      admin.getId(), admin.getTenantId()));
   }
 
   @Transactional(readOnly = true)
@@ -97,7 +92,7 @@ public class ChitGroupService {
     if (!owns(username, group.getScheme().getAdmin())) {
       throw new AccessDeniedException("Only the group admin can view this group");
     }
-    return GroupDto.fromEntity(group);
+    return toDto(group);
   }
 
   @Transactional
@@ -110,7 +105,8 @@ public class ChitGroupService {
     if (request.getName() != null && !request.getName().isBlank()) group.setName(request.getName().trim());
     if (request.getStartDate() != null) group.setStartDate(request.getStartDate());
     if (request.getStatus() != null) group.setStatus(request.getStatus());
-    return GroupDto.fromEntity(groupRepository.save(group));
+    if (request.getMemberIds() != null) syncMembers(username, group, request.getMemberIds());
+    return toDto(groupRepository.save(group));
   }
 
   @Transactional
@@ -143,6 +139,68 @@ public class ChitGroupService {
     return actor.getId().equals(owner.getId())
       && actor.getTenantId() != null
       && actor.getTenantId().equals(owner.getTenantId());
+  }
+
+  private GroupDto toDto(ChitGroup group) {
+    return toDtos(List.of(group)).getFirst();
+  }
+
+  private List<GroupDto> toDtos(List<ChitGroup> groups) {
+    if (groups.isEmpty()) {
+      return List.of();
+    }
+
+    Map<Long, List<Integer>> memberIds = membershipRepository.findAllByGroupIdInAndActiveTrue(
+        groups.stream().map(ChitGroup::getId).toList())
+      .stream()
+      .collect(java.util.stream.Collectors.groupingBy(
+        membership -> membership.getGroup().getId(),
+        java.util.stream.Collectors.mapping(
+          membership -> membership.getUser().getId(), java.util.stream.Collectors.toList())));
+    return groups.stream()
+      .map(group -> GroupDto.fromEntity(group, memberIds.getOrDefault(group.getId(), List.of())))
+      .toList();
+  }
+
+  private void validateMemberIds(ChitScheme scheme, List<Integer> memberIds) {
+    if (new HashSet<>(memberIds).size() != memberIds.size()) {
+      throw new IllegalArgumentException("Duplicate members are not allowed");
+    }
+    if (memberIds.size() > scheme.getMemberCount()) {
+      throw new IllegalArgumentException("Selected members exceed the scheme member limit");
+    }
+  }
+
+  private void syncMembers(String username, ChitGroup group, List<Integer> memberIds) {
+    validateMemberIds(group.getScheme(), memberIds);
+    Map<Integer, Membership> existingMembers = membershipRepository
+      .findAllByGroupIdOrderByJoinedAtDesc(group.getId())
+      .stream()
+      .collect(java.util.stream.Collectors.toMap(membership -> membership.getUser().getId(), membership -> membership));
+    Set<Integer> selectedMemberIds = new HashSet<>(memberIds);
+
+    for (Integer memberId : selectedMemberIds) {
+      com.ms.chitcircle.models.User member = userRepository.findById(memberId)
+        .orElseThrow(() -> new EntityNotFoundException("Customer not found: " + memberId));
+      if (!isCustomerInScope(username, member)) {
+        throw new AccessDeniedException("Customer belongs to another tenant or parent scope");
+      }
+      Membership existingMembership = existingMembers.get(memberId);
+      if (existingMembership == null) {
+        Membership membership = new Membership();
+        membership.setGroup(group);
+        membership.setUser(member);
+        membershipRepository.save(membership);
+      } else if (!existingMembership.isActive()) {
+        existingMembership.setActive(true);
+      }
+    }
+
+    existingMembers.forEach((memberId, membership) -> {
+      if (!selectedMemberIds.contains(memberId)) {
+        membership.setActive(false);
+      }
+    });
   }
 
   private boolean isCustomerInScope(String username, com.ms.chitcircle.models.User customer) {

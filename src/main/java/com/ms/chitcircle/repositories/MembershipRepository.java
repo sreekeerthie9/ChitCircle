@@ -8,6 +8,8 @@ import java.util.Optional;
 public interface MembershipRepository extends JpaRepository<Membership, Long> {
   void deleteAllByGroupId(Long groupId);
   List<Membership> findAllByGroupIdOrderByJoinedAtDesc(Long groupId);
+  List<Membership> findAllByGroupIdInAndActiveTrue(List<Long> groupIds);
   List<Membership> findAllByUserUsernameOrderByJoinedAtDesc(String username);
+  List<Membership> findAllByUserIdOrderByJoinedAtDesc(Integer userId);
   Optional<Membership> findByUserIdAndGroupId(Integer userId, Long groupId);
 }

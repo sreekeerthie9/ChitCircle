@@ -37,6 +37,9 @@ dependencies {
 	//google
 	implementation 'com.google.cloud:google-cloud-storage:2.69.0'
 	implementation 'com.google.cloud:google-cloud-secretmanager:2.94.0'
+	implementation 'com.google.apis:google-api-services-gmail:v1-rev20240520-2.0.0'
+	implementation 'com.google.auth:google-auth-library-oauth2-http:1.49.0'
+	implementation 'org.eclipse.angus:angus-mail:2.0.3'
 	//paseto
 	implementation 'io.github.nbaars:paseto4j-version4:2024.3'
 	//jackson

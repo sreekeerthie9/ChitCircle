@@ -10,8 +10,13 @@ gcp:
   storage:
     image-upload-bucket: chitcircle-image-uploads
     receipt-upload-bucket: chitcircle-image-uploads
+    kyc-upload-bucket: chitcircle-kyc-documents
     object-key-prefix: ""
   secrets:
     database: db-credentials
     hikari: hikari
     paseto: paseto
+    gmail-oauth: gmail-oauth
+  email:
+    sender: sreekeerthimaripally@gmail.com
+    enabled: true

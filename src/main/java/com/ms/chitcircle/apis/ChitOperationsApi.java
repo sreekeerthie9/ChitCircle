@@ -4,6 +4,7 @@ import com.ms.chitcircle.enums.*;
 import com.ms.chitcircle.models.*;
 import com.ms.chitcircle.repositories.*;
 import com.ms.chitcircle.services.AuditService;
+import com.ms.chitcircle.services.WinnerNotificationService;
 import com.ms.chitcircle.properties.GcpProperties;
 import com.ms.chitcircle.utils.GcpUtil;
 import jakarta.persistence.EntityNotFoundException;
@@ -42,6 +43,7 @@ public class ChitOperationsApi {
   private final PayoutRepository payoutRepository;
   private final LedgerEntryRepository ledgerRepository;
   private final AuditService auditService;
+  private final WinnerNotificationService winnerNotificationService;
   private final GcpUtil gcpUtil;
   private final GcpProperties gcpProperties;
 
@@ -65,6 +67,55 @@ public class ChitOperationsApi {
     return paymentRepository.findAll().stream()
       .filter(payment -> owns(payment.getCycle().getGroup(), authentication))
       .map(this::paymentView).toList();
+  }
+
+  @PostMapping("/api/payments")
+  @ResponseStatus(HttpStatus.CREATED)
+  @Transactional
+  public Map<String, Object> recordPayment(@RequestBody Map<String, Object> body, Authentication authentication) {
+    Cycle cycle = ownedCycle(number(body, "cycleId", 0).longValue(), authentication);
+    User user = userRepository.findByUsername(string(body, "username"))
+      .orElseThrow(() -> new EntityNotFoundException("Customer not found"));
+    Membership membership = membershipRepository.findByUserIdAndGroupId(user.getId(), cycle.getGroup().getId())
+      .filter(Membership::isActive)
+      .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Customer is not an active member of this group"));
+    Optional<Payment> existing = paymentRepository.findByMembershipIdAndCycleId(membership.getId(), cycle.getId());
+    if (existing.isPresent()) return paymentView(existing.get());
+
+    Payment payment = new Payment();
+    payment.setMembership(membership);
+    payment.setCycle(cycle);
+    payment.setAmount(decimal(body, "amount"));
+    if (payment.getAmount().signum() <= 0) throw new IllegalArgumentException("amount must be greater than zero");
+    payment.setDueDate(LocalDate.parse(string(body, "dueDate")));
+    payment.setMethod(body.get("method") == null ? "MANUAL" : body.get("method").toString().trim().toUpperCase(Locale.ROOT));
+    PaymentStatusEnum status = paymentStatus(body.get("status"));
+    payment.setStatus(status);
+    payment.setPaidAt(status == PaymentStatusEnum.PAID ? OffsetDateTime.now() : null);
+    Payment saved = paymentRepository.save(payment);
+    if (status == PaymentStatusEnum.PAID) recordCollection(saved);
+    auditService.record(authentication.getName(), "PAYMENT_RECORDED", "PAYMENT", saved.getId(),
+      "{\"cycleId\":" + cycle.getId() + ",\"membershipId\":" + membership.getId() + ",\"status\":\"" + status + "\"}");
+    return paymentView(saved);
+  }
+
+  @PutMapping("/api/payments/{paymentId}")
+  @Transactional
+  public Map<String, Object> updatePayment(@PathVariable Long paymentId, @RequestBody Map<String, Object> body, Authentication authentication) {
+    Payment payment = paymentRepository.findById(paymentId)
+      .orElseThrow(() -> new EntityNotFoundException("Payment not found: " + paymentId));
+    ownedCycle(payment.getCycle().getId(), authentication);
+    PaymentStatusEnum previousStatus = payment.getStatus();
+    if (body.get("method") != null && !body.get("method").toString().isBlank()) {
+      payment.setMethod(body.get("method").toString().trim().toUpperCase(Locale.ROOT));
+    }
+    if (body.get("status") != null) payment.setStatus(paymentStatus(body.get("status")));
+    if (payment.getStatus() == PaymentStatusEnum.PAID && previousStatus != PaymentStatusEnum.PAID) {
+      payment.setPaidAt(OffsetDateTime.now());
+      recordCollection(payment);
+    }
+    if (payment.getStatus() != PaymentStatusEnum.PAID) payment.setPaidAt(null);
+    return paymentView(paymentRepository.save(payment));
   }
 
   /**
@@ -462,17 +513,95 @@ public class ChitOperationsApi {
     List<ChitGroup> groups = groupRepository.findAllByOrderByCreatedAtDesc().stream()
       .filter(group -> owns(group, authentication)).toList();
     Set<Long> groupIds = groups.stream().map(ChitGroup::getId).collect(java.util.stream.Collectors.toSet());
-    long cycles = cycleRepository.findAll().stream().filter(cycle -> groupIds.contains(cycle.getGroup().getId())).count();
-    long memberships = membershipRepository.findAll().stream().filter(membership -> groupIds.contains(membership.getGroup().getId())).count();
-    long payments = paymentRepository.findAll().stream().filter(payment -> groupIds.contains(payment.getCycle().getGroup().getId())).count();
-    List<Payout> payouts = payoutRepository.findAll().stream()
+    List<Cycle> cyclesInScope = cycleRepository.findAll().stream()
+      .filter(cycle -> groupIds.contains(cycle.getGroup().getId())).toList();
+    List<Membership> membershipsInScope = membershipRepository.findAll().stream()
+      .filter(membership -> groupIds.contains(membership.getGroup().getId())).toList();
+    List<Payment> paymentsInScope = paymentRepository.findAll().stream()
+      .filter(payment -> groupIds.contains(payment.getCycle().getGroup().getId())).toList();
+    List<Payout> payoutsInScope = payoutRepository.findAll().stream()
       .filter(payout -> groupIds.contains(payout.getCycle().getGroup().getId())).toList();
     long ledgerEntries = ledgerRepository.findAll().stream().filter(entry -> groupIds.contains(entry.getGroup().getId())).count();
-    BigDecimal totalPayouts = payouts.stream().map(Payout::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-    long payoutsWithReceipts = payouts.stream().filter(payout -> payout.getReceiptObjectKey() != null).count();
-    return Map.of("groups", groups.size(), "cycles", cycles, "memberships", memberships, "payments", payments,
-      "payouts", payouts.size(), "totalPayouts", totalPayouts, "payoutsWithReceipts", payoutsWithReceipts,
-      "ledgerEntries", ledgerEntries);
+    BigDecimal totalCollections = paymentsInScope.stream()
+      .filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID)
+      .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    BigDecimal totalPayouts = payoutsInScope.stream()
+      .filter(payout -> payout.getStatus() == PaymentStatusEnum.PAID)
+      .map(Payout::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    List<Map<String, Object>> groupBreakdown = groups.stream().map(group -> {
+      List<Payment> groupPayments = paymentsInScope.stream()
+        .filter(payment -> payment.getCycle().getGroup().getId().equals(group.getId())).toList();
+      List<Payout> groupPayouts = payoutsInScope.stream()
+        .filter(payout -> payout.getCycle().getGroup().getId().equals(group.getId())).toList();
+      BigDecimal collections = groupPayments.stream()
+        .filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID)
+        .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+      BigDecimal outstanding = groupPayments.stream()
+        .filter(payment -> payment.getStatus() == PaymentStatusEnum.PENDING || payment.getStatus() == PaymentStatusEnum.OVERDUE)
+        .map(Payment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+      BigDecimal payouts = groupPayouts.stream()
+        .filter(payout -> payout.getStatus() == PaymentStatusEnum.PAID)
+        .map(Payout::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+      List<Cycle> groupCycles = cyclesInScope.stream()
+        .filter(cycle -> cycle.getGroup().getId().equals(group.getId()))
+        .sorted(Comparator.comparing(Cycle::getCycleNumber).reversed()).toList();
+      Cycle currentCycle = groupCycles.isEmpty() ? null : groupCycles.get(0);
+      List<Membership> activeMembers = membershipsInScope.stream()
+        .filter(member -> member.getGroup().getId().equals(group.getId()) && member.isActive()).toList();
+      List<Payment> currentCyclePayments = currentCycle == null ? List.of() : groupPayments.stream()
+        .filter(payment -> payment.getCycle().getId().equals(currentCycle.getId())).toList();
+      long paidMembers = currentCyclePayments.stream()
+        .filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID)
+        .map(payment -> payment.getMembership().getId()).distinct().count();
+      long totalMembers = activeMembers.size();
+      long remainingMembers = Math.max(0, totalMembers - paidMembers);
+      BigDecimal monthlyAmount = group.getScheme().getSchedule().stream()
+        .filter(schedule -> currentCycle != null && schedule.getMonthNumber().equals(currentCycle.getCycleNumber()))
+        .map(ChitSchemeSchedule::getMemberPayment).findFirst()
+        .orElseGet(() -> group.getScheme().getDurationMonths() == 0
+          ? BigDecimal.ZERO
+          : group.getScheme().getPotAmount().divide(BigDecimal.valueOf(group.getScheme().getDurationMonths()), 2, java.math.RoundingMode.HALF_UP));
+      BigDecimal currentOutstanding = monthlyAmount.multiply(BigDecimal.valueOf(remainingMembers));
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("id", group.getId());
+      row.put("name", group.getName());
+      row.put("status", group.getStatus());
+      row.put("members", totalMembers);
+      row.put("cycles", cyclesInScope.stream().filter(cycle -> cycle.getGroup().getId().equals(group.getId())).count());
+      row.put("currentCycle", currentCycle == null ? 0 : currentCycle.getCycleNumber());
+      row.put("monthlyAmount", monthlyAmount);
+      row.put("paidMembers", paidMembers);
+      row.put("totalMembers", totalMembers);
+      row.put("remainingMembers", remainingMembers);
+      row.put("payments", groupPayments.size());
+      row.put("paidPayments", groupPayments.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID).count());
+      row.put("pendingPayments", groupPayments.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PENDING || payment.getStatus() == PaymentStatusEnum.OVERDUE).count());
+      row.put("payouts", groupPayouts.size());
+      row.put("collections", collections);
+      row.put("outstanding", currentOutstanding);
+      row.put("payoutAmount", payouts);
+      row.put("netResult", collections.subtract(payouts));
+      return row;
+    }).toList();
+    BigDecimal totalOutstanding = groupBreakdown.stream()
+      .map(row -> (BigDecimal) row.get("outstanding"))
+      .reduce(BigDecimal.ZERO, BigDecimal::add);
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("groups", groups.size());
+    result.put("cycles", cyclesInScope.size());
+    result.put("memberships", membershipsInScope.stream().filter(Membership::isActive).count());
+    result.put("payments", paymentsInScope.size());
+    result.put("paidPayments", paymentsInScope.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PAID).count());
+    result.put("pendingPayments", paymentsInScope.stream().filter(payment -> payment.getStatus() == PaymentStatusEnum.PENDING || payment.getStatus() == PaymentStatusEnum.OVERDUE).count());
+    result.put("payouts", payoutsInScope.stream().filter(payout -> payout.getStatus() == PaymentStatusEnum.PAID).count());
+    result.put("collections", totalCollections);
+    result.put("outstanding", totalOutstanding);
+    result.put("totalPayouts", totalPayouts);
+    result.put("netResult", totalCollections.subtract(totalPayouts));
+    result.put("payoutsWithReceipts", payoutsInScope.stream().filter(payout -> payout.getReceiptObjectKey() != null).count());
+    result.put("ledgerEntries", ledgerEntries);
+    result.put("groupBreakdown", groupBreakdown);
+    return result;
   }
 
   private ChitGroup ownedGroup(Long id, Authentication authentication) {
@@ -538,16 +667,49 @@ public class ChitOperationsApi {
     cycle.setStatus(CycleStatusEnum.PENDING_ADMIN_REVIEW);
     cycle.setBidWindowCloseAt(OffsetDateTime.now());
     cycleRepository.save(cycle);
+    winnerNotificationService.notifyWinner(cycle);
   }
   private String string(Map<String, Object> body, String key) { Object value = body.get(key); if (value == null || value.toString().isBlank()) throw new IllegalArgumentException(key + " is required"); return value.toString(); }
   private Number number(Map<String, Object> body, String key, Number fallback) { Object value = body.get(key); return value instanceof Number ? (Number) value : value == null ? fallback : Long.valueOf(value.toString()); }
   private BigDecimal decimal(Map<String, Object> body, String key) { return new BigDecimal(string(body, key)); }
   private OffsetDateTime dateTime(Object value) { return value == null ? null : OffsetDateTime.parse(value.toString()); }
-  private Map<String, Object> cycleView(Cycle c) { return Map.of("id", c.getId(), "groupId", c.getGroup().getId(), "cycleNumber", c.getCycleNumber(), "status", c.getStatus(), "winnerMembershipId", c.getWinnerMembership() == null ? 0 : c.getWinnerMembership().getId(), "payoutRecorded", payoutRepository.findByCycleId(c.getId()).isPresent(), "bidWindowOpenAt", c.getBidWindowOpenAt() == null ? "" : c.getBidWindowOpenAt(), "bidWindowCloseAt", c.getBidWindowCloseAt() == null ? "" : c.getBidWindowCloseAt()); }
+  private Map<String, Object> cycleView(Cycle c) {
+    Membership winner = c.getWinnerMembership();
+    return Map.ofEntries(
+      Map.entry("id", c.getId()),
+      Map.entry("groupId", c.getGroup().getId()),
+      Map.entry("groupName", c.getGroup().getName()),
+      Map.entry("cycleNumber", c.getCycleNumber()),
+      Map.entry("status", c.getStatus()),
+      Map.entry("winnerMembershipId", winner == null ? 0 : winner.getId()),
+      Map.entry("winnerUsername", winner == null ? "" : winner.getUser().getUsername()),
+      Map.entry("winnerName", winner == null || winner.getUser().getDisplayName() == null ? "" : winner.getUser().getDisplayName()),
+      Map.entry("payoutRecorded", payoutRepository.findByCycleId(c.getId()).isPresent()),
+      Map.entry("bidWindowOpenAt", c.getBidWindowOpenAt() == null ? "" : c.getBidWindowOpenAt()),
+      Map.entry("bidWindowCloseAt", c.getBidWindowCloseAt() == null ? "" : c.getBidWindowCloseAt())
+    );
+  }
   private Map<String, Object> membershipView(Membership m) { return Map.of("id", m.getId(), "userId", m.getUser().getId(), "username", m.getUser().getUsername(), "displayName", m.getUser().getDisplayName(), "groupId", m.getGroup().getId(), "active", m.isActive(), "hasWon", m.isHasWon()); }
   private Map<String, Object> bidView(Bid b) { return Map.of("id", b.getId(), "cycleId", b.getCycle().getId(), "membershipId", b.getMembership().getId(), "username", b.getMembership().getUser().getUsername(), "discountAmount", b.getDiscountAmount(), "status", b.getStatus()); }
   private Map<String, Object> claimView(Claim c) { return Map.of("id", c.getId(), "cycleId", c.getCycle().getId(), "membershipId", c.getMembership().getId(), "username", c.getMembership().getUser().getUsername(), "note", c.getNote() == null ? "" : c.getNote(), "status", c.getStatus()); }
   private Map<String, Object> paymentView(Payment p) { return Map.of("id", p.getId(), "cycleId", p.getCycle().getId(), "membershipId", p.getMembership().getId(), "username", p.getMembership().getUser().getUsername(), "amount", p.getAmount(), "status", p.getStatus(), "method", p.getMethod() == null ? "" : p.getMethod(), "dueDate", p.getDueDate(), "paidAt", p.getPaidAt() == null ? "" : p.getPaidAt()); }
+
+  private PaymentStatusEnum paymentStatus(Object value) {
+    return value == null || value.toString().isBlank()
+      ? PaymentStatusEnum.PAID
+      : PaymentStatusEnum.valueOf(value.toString().trim().toUpperCase(Locale.ROOT));
+  }
+
+  private void recordCollection(Payment payment) {
+    LedgerEntry ledgerEntry = new LedgerEntry();
+    ledgerEntry.setGroup(payment.getCycle().getGroup());
+    ledgerEntry.setCycle(payment.getCycle());
+    ledgerEntry.setEntryType(LedgerEntryTypeEnum.COLLECTION);
+    ledgerEntry.setDirection(LedgerDirectionEnum.CREDIT);
+    ledgerEntry.setAmount(payment.getAmount());
+    ledgerEntry.setReferenceId(payment.getId());
+    ledgerRepository.save(ledgerEntry);
+  }
   private Map<String, Object> payoutView(Payout p) { return Map.ofEntries(
     Map.entry("id", p.getId()), Map.entry("cycleId", p.getCycle().getId()), Map.entry("cycleNumber", p.getCycle().getCycleNumber()),
     Map.entry("groupId", p.getCycle().getGroup().getId()), Map.entry("membershipId", p.getMembership().getId()),

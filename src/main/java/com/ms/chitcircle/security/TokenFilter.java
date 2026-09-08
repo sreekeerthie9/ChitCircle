@@ -1,6 +1,7 @@
 package com.ms.chitcircle.security;
 
 import com.ms.chitcircle.dtos.Token;
+import com.ms.chitcircle.exceptions.InvalidTokenException;
 import com.ms.chitcircle.services.SessionTokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -61,7 +62,7 @@ public class TokenFilter extends OncePerRequestFilter {
         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
         SecurityContextHolder.getContext().setAuthentication(authentication);
       } else {
-        throw new RuntimeException("Auth Token is empty");
+        throw new InvalidTokenException("Authentication is required");
       }
 
       filterChain.doFilter(request, response);
