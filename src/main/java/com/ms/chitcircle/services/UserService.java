@@ -38,6 +38,18 @@ public class UserService {
 
   @Transactional
   public UserDto createUser(String actorUsername, CreateUserRequest request) {
+    return createUser(actorUsername, request, false);
+  }
+
+  @Transactional
+  public UserDto createAdminUser(String actorUsername, CreateUserRequest request) {
+    if (!"ADMIN".equalsIgnoreCase(request.getRole())) {
+      throw new IllegalArgumentException("Only ADMIN users can be created from this endpoint");
+    }
+    return createUser(actorUsername, request, true);
+  }
+
+  private UserDto createUser(String actorUsername, CreateUserRequest request, boolean createAdmin) {
     if (request.getUsername() == null || request.getUsername().isBlank()) {
       throw new IllegalArgumentException("Username cannot be empty");
     }
@@ -49,7 +61,10 @@ public class UserService {
       .orElseThrow(() -> new EntityNotFoundException("User not found: " + actorUsername));
     ensureTenant(actor);
     String actorRole = roleName(actor);
-    if (!"ADMIN".equals(actorRole) && !"SUPERADMIN".equals(actorRole)) {
+    if (createAdmin && !"SUPERADMIN".equals(actorRole)) {
+      throw new org.springframework.security.access.AccessDeniedException("Only super admins can create admins");
+    }
+    if (!createAdmin && !"ADMIN".equals(actorRole) && !"SUPERADMIN".equals(actorRole)) {
       throw new org.springframework.security.access.AccessDeniedException("Only admins can create users");
     }
 
@@ -64,18 +79,19 @@ public class UserService {
     user.setFirebaseUid(request.getFirebaseUid() != null ? request.getFirebaseUid() : UUID.randomUUID().toString());
     user.setKycStatus(request.getKycStatus() != null ? request.getKycStatus() : KycStatusEnum.NOT_STARTED);
     user.setActive(true);
-    user.setTenantId("SUPERADMIN".equals(actorRole) && "ADMIN".equalsIgnoreCase(request.getRole())
+    user.setTenantId(createAdmin
       ? UUID.randomUUID() : actor.getTenantId());
-    user.setParent("SUPERADMIN".equals(actorRole) && "ADMIN".equalsIgnoreCase(request.getRole())
+    user.setParent(createAdmin
       ? null : actor);
 
-    Role customerRole = roleRepository.findByName("CUSTOMER")
+    String roleName = createAdmin ? "ADMIN" : "CUSTOMER";
+    Role userRole = roleRepository.findByName(roleName)
       .orElseGet(() -> {
         Role newRole = new Role();
-        newRole.setName("CUSTOMER");
+        newRole.setName(roleName);
         return roleRepository.save(newRole);
       });
-    user.setRole(customerRole);
+    user.setRole(userRole);
 
     User savedUser = userRepository.save(user);
     log.info("Created user with username: {}", savedUser.getUsername());
@@ -170,8 +186,8 @@ public class UserService {
 
   private boolean canAccess(User actor, User target) {
     if (actor.getId().equals(target.getId())) return true;
-    if (!actor.getTenantId().equals(target.getTenantId())) return false;
     if ("SUPERADMIN".equals(roleName(actor))) return true;
+    if (!actor.getTenantId().equals(target.getTenantId())) return false;
     return "ADMIN".equals(roleName(actor))
       && target.getParent() != null
       && actor.getId().equals(target.getParent().getId());

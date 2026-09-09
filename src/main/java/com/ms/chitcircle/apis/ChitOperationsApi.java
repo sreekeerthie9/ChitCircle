@@ -4,10 +4,13 @@ import com.ms.chitcircle.enums.*;
 import com.ms.chitcircle.models.*;
 import com.ms.chitcircle.repositories.*;
 import com.ms.chitcircle.services.AuditService;
+import com.ms.chitcircle.services.VertexAiAffordabilityService;
 import com.ms.chitcircle.services.WinnerNotificationService;
+import com.ms.chitcircle.dtos.AiAffordabilityRequest;
 import com.ms.chitcircle.properties.GcpProperties;
 import com.ms.chitcircle.utils.GcpUtil;
 import jakarta.persistence.EntityNotFoundException;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -46,6 +49,7 @@ public class ChitOperationsApi {
   private final WinnerNotificationService winnerNotificationService;
   private final GcpUtil gcpUtil;
   private final GcpProperties gcpProperties;
+  private final VertexAiAffordabilityService vertexAiAffordabilityService;
 
   private static final long MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
   private static final Set<String> ALLOWED_RECEIPT_TYPES = Set.of(
@@ -535,6 +539,19 @@ public class ChitOperationsApi {
       Map.entry("paidPayments", paidPayments), Map.entry("totalPayments", totalPayments),
       Map.entry("pendingPayments", pendingPayments), Map.entry("overduePayments", overduePayments),
       Map.entry("reasons", reasons));
+  }
+
+  @PostMapping("/api/users/{username}/ai-affordability")
+  public Map<String, Object> aiAffordability(
+      @PathVariable String username,
+      @Valid @RequestBody AiAffordabilityRequest request,
+      Authentication authentication) {
+    Map<String, Object> transactionSummary = new LinkedHashMap<>(financialRisk(username, request.getGroupId(), authentication));
+    transactionSummary.remove("username");
+    transactionSummary.remove("groupId");
+    transactionSummary.remove("groupName");
+    Map<String, Object> advisory = vertexAiAffordabilityService.analyse(transactionSummary, request);
+    return Map.of("transactionSummary", transactionSummary, "advisory", advisory);
   }
 
   @PostMapping("/api/groups/{groupId}/ledger")

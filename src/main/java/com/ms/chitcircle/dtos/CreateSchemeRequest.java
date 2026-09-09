@@ -27,7 +27,6 @@ public class CreateSchemeRequest {
   @Min(5)
   private Integer memberCount;
 
-  @NotNull
   @DecimalMin("0.00")
   private BigDecimal commissionRate;
 }

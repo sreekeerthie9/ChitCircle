@@ -6,7 +6,12 @@ import com.ms.chitcircle.repositories.ChitGroupRepository;
 import com.ms.chitcircle.repositories.MembershipRepository;
 import com.ms.chitcircle.repositories.PaymentRepository;
 import com.ms.chitcircle.repositories.UserRepository;
+import com.ms.chitcircle.dtos.CreateUserRequest;
 import com.ms.chitcircle.dtos.UserDto;
+import com.ms.chitcircle.services.UserService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,6 +27,7 @@ public class SuperAdminApi {
   private final PaymentRepository paymentRepository;
   private final UserRepository userRepository;
   private final AuditEventRepository auditEventRepository;
+  private final UserService userService;
 
   @GetMapping("/summary")
   public Map<String, Object> summary() {
@@ -44,6 +50,13 @@ public class SuperAdminApi {
   @GetMapping("/users")
   public List<UserDto> users() {
     return userRepository.findAllByOrderByCreatedAtDesc().stream().map(UserDto::fromEntity).toList();
+  }
+
+  @PostMapping("/users")
+  public ResponseEntity<UserDto> createAdmin(
+      @RequestBody CreateUserRequest request, Authentication authentication) {
+    UserDto created = userService.createAdminUser(authentication.getName(), request);
+    return ResponseEntity.status(HttpStatus.CREATED).body(created);
   }
 
   private Map<String, Object> auditView(AuditEvent event) {

@@ -17,6 +17,7 @@ gcp:
     hikari: hikari
     paseto: paseto
     gmail-oauth: gmail-oauth
+    vertex-ai: vertex-ai-api-key
   email:
     sender: sreekeerthimaripally@gmail.com
     enabled: true

@@ -8,4 +8,5 @@ import java.util.List;
 public interface KycDocumentRepository extends JpaRepository<KycDocument, Long> {
   List<KycDocument> findAllByUserUsernameOrderByCreatedAtDesc(String username);
   List<KycDocument> findAllByUserTenantIdOrderByCreatedAtDesc(java.util.UUID tenantId);
+  List<KycDocument> findAllByOrderByCreatedAtDesc();
 }

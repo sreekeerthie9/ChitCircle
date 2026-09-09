@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
+import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -41,7 +42,7 @@ public class ChitSchemeService {
     scheme.setPotAmount(request.getPotAmount());
     scheme.setDurationMonths(request.getDurationMonths());
     scheme.setMemberCount(request.getMemberCount());
-    scheme.setCommissionRate(request.getCommissionRate());
+    scheme.setCommissionRate(request.getCommissionRate() == null ? BigDecimal.ZERO : request.getCommissionRate());
     return SchemeDto.fromEntity(schemeRepository.save(scheme));
   }
 

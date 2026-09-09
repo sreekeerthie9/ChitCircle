@@ -58,6 +58,12 @@ public class CustomerApi {
       .stream().map(this::claimView).toList();
   }
 
+  @GetMapping("/payouts")
+  public List<Map<String, Object>> payouts(org.springframework.security.core.Authentication authentication) {
+    return payoutRepository.findAllByMembershipUserUsernameOrderByPaidAtDesc(authentication.getName())
+      .stream().map(this::payoutView).toList();
+  }
+
   @GetMapping("/payments")
   public List<Map<String, Object>> payments(org.springframework.security.core.Authentication authentication) {
     List<Map<String, Object>> records = new java.util.ArrayList<>();
@@ -147,16 +153,19 @@ public class CustomerApi {
   }
 
   private Map<String, Object> membershipView(Membership membership) {
-    return Map.of(
-      "id", membership.getId(),
-      "groupId", membership.getGroup().getId(),
-      "groupName", membership.getGroup().getName(),
-      "schemeId", membership.getGroup().getScheme().getId(),
-      "active", membership.isActive(),
-      "hasWon", membership.isHasWon(),
-      "joinedAt", membership.getJoinedAt() == null ? "" : membership.getJoinedAt()
+    return Map.ofEntries(
+      Map.entry("id", membership.getId()),
+      Map.entry("groupId", membership.getGroup().getId()),
+      Map.entry("groupName", membership.getGroup().getName()),
+      Map.entry("schemeId", membership.getGroup().getScheme().getId()),
+      Map.entry("schemeName", membership.getGroup().getScheme().getName()),
+      Map.entry("potAmount", membership.getGroup().getScheme().getPotAmount()),
+      Map.entry("active", membership.isActive()),
+      Map.entry("hasWon", membership.isHasWon()),
+      Map.entry("joinedAt", membership.getJoinedAt() == null ? "" : membership.getJoinedAt())
     );
   }
+
 
   private Map<String, Object> cycleView(Cycle cycle, Membership membership) {
     return Map.ofEntries(
@@ -205,16 +214,19 @@ public class CustomerApi {
       "id", payment.getId(),
       "recordType", "CONTRIBUTION",
       "cycleId", payment.getCycle().getId(),
+      "cycleNumber", payment.getCycle().getCycleNumber(),
       "groupId", payment.getCycle().getGroup().getId(),
+      "groupName", payment.getCycle().getGroup().getName(),
       "amount", payment.getAmount(),
       "status", payment.getStatus(),
-      "method", payment.getMethod() == null ? "" : payment.getMethod(),
-      "dueDate", payment.getDueDate(),
-      "paidAt", payment.getPaidAt() == null ? "" : payment.getPaidAt(),
-      "sortDate", payment.getPaidAt() == null ? payment.getDueDate() : payment.getPaidAt()
+      "method", payment.getMethod() == null ? "" : payment.getMethod()
     ));
+    view.put("dueDate", payment.getDueDate());
+    view.put("paidAt", payment.getPaidAt() == null ? "" : payment.getPaidAt());
+    view.put("sortDate", payment.getPaidAt() == null ? payment.getDueDate() : payment.getPaidAt());
     return view;
   }
+
 
   private Map<String, Object> payoutView(com.ms.chitcircle.models.Payout payout) {
     Map<String, Object> view = new java.util.HashMap<>();

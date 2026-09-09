@@ -78,6 +78,12 @@ public class KycApi {
     return documentRepository.findAllByUserUsernameOrderByCreatedAtDesc(target.getUsername()).stream().map(this::view).toList();
   }
 
+  @GetMapping("/review/documents")
+  public List<Map<String, Object>> reviewDocuments(Authentication authentication) {
+    requireSuperAdmin(authentication);
+    return documentRepository.findAllByOrderByCreatedAtDesc().stream().map(this::view).toList();
+  }
+
   @GetMapping("/documents/{documentId}/download")
   public ResponseEntity<InputStreamResource> download(@PathVariable Long documentId, Authentication authentication) {
     KycDocument document = documentRepository.findById(documentId).orElseThrow(() -> new EntityNotFoundException("KYC document not found"));
@@ -118,10 +124,17 @@ public class KycApi {
     User target = userRepository.findByUsername(username).orElseThrow(() -> new EntityNotFoundException("User not found"));
     String role = actor.getRole() == null ? "" : actor.getRole().getName();
     boolean allowed = actor.getId().equals(target.getId())
-      || ("SUPERADMIN".equals(role) && actor.getTenantId().equals(target.getTenantId()))
+      || "SUPERADMIN".equals(role)
       || ("ADMIN".equals(role) && target.getParent() != null && actor.getId().equals(target.getParent().getId()));
     if (!allowed) throw new AccessDeniedException("KYC record is outside your scope");
     return target;
+  }
+
+  private void requireSuperAdmin(Authentication authentication) {
+    User actor = userRepository.findByUsername(authentication.getName()).orElseThrow(() -> new EntityNotFoundException("User not found"));
+    if (actor.getRole() == null || !"SUPERADMIN".equals(actor.getRole().getName())) {
+      throw new AccessDeniedException("Only super admins can view all KYC documents");
+    }
   }
 
   private boolean isCustomer(Authentication authentication) {

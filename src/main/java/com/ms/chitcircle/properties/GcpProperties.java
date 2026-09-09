@@ -32,6 +32,7 @@ public class GcpProperties {
     private String hikari;
     private String paseto;
     private String gmailOauth;
+    private String vertexAi;
   }
 
   @Getter
